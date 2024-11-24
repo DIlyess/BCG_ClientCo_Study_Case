@@ -12,6 +12,10 @@ class FeatureCreation:
         self.group_col = ["scenario", "nom_dep", "code_dep", "year"]
         self.metrics = df_climate.columns[~df_climate.columns.isin(self.group_col)]
 
+    def run(self):
+        self.add_amplitude("1M")
+        return self.df_hist, self.df_forecast
+
     def add_amplitude(self, frequency):
         # Define the aggregation function
         def amplitude(group):
@@ -57,3 +61,4 @@ class FeatureCreation:
 
         # Initialisation of the forecast df
         self.df_forecast = pivoted_df[~(pivoted_df["scenario"] == "historical")]
+        print("--- Amplitude feature created ---")
