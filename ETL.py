@@ -24,8 +24,12 @@ class ETL:
 
         df_climate.set_index("time", inplace=True, drop=True)
         df_climate.index = pd.to_datetime(df_climate.index)
-        df_climate.index = df_climate.index.date
         df_climate.index.name = "date"
+        col_rename = {
+            "daily_maximum_near_surface_air_temperature": "max_daily_NSA_temp",
+            "near_surface_air_temperature": "daily_NSA_temp",
+        }
+        df_climate = df_climate.rename(columns=col_rename)
         self.df_climate = df_climate
 
     def clean_df_climate(self):
@@ -35,6 +39,7 @@ class ETL:
         missing_data = missing_data[["nom_dep", "scenario"]].drop_duplicates(
             subset=["nom_dep", "scenario"]
         )
+        print("--- df_climate---")
         print(
             f"Departments/Scenario dropped because of any missing values: {missing_data}"
         )
@@ -65,6 +70,7 @@ class ETL:
             missing_per_dep.mean(axis=1) > len(df_yield.index.unique()) * 0.7
         ].index
         df_yield = df_yield[~df_yield["department"].isin(dep_to_drop)]
+        print("--- df_yield ---")
         print(
             f"Departments dropped because of almost absolute absence of data:\n {dep_to_drop.values}"
         )
