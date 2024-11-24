@@ -26,10 +26,20 @@ class ETL:
         df_climate.index = pd.to_datetime(df_climate.index)
         df_climate.index = df_climate.index.date
         df_climate.index.name = "date"
+        self.df_climate = df_climate
 
     def clean_df_climate(self):
-        # TODO
-        return None
+        # Temporary : drop all NaNs
+        df_climate = self.df_climate
+        missing_data = df_climate[df_climate.isna().any(axis=1)]
+        missing_data = missing_data[["nom_dep", "scenario"]].drop_duplicates(
+            subset=["nom_dep", "scenario"]
+        )
+        print(
+            f"Departments/Scenario dropped because of any missing values: {missing_data}"
+        )
+        df_climate.dropna(inplace=True)
+        self.df_climate = df_climate
 
     def structure_df_yield(self):
         """
