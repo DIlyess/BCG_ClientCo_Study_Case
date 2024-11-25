@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from sklearn.preprocessing import OneHotEncoder
 
 
 class FeatureCreation:
@@ -14,7 +15,29 @@ class FeatureCreation:
 
     def run(self):
         self.add_amplitude("1M")
+        self.df_hist = self.df_hist.reset_index()
+        self.df_hist["year"] = self.df_hist["year"].apply(lambda x: x.year)
+
+        # WARNING TMP --- Removing departments ---
+        self.df_hist = self.encode_departments(self.df_hist)
+        self.df_forecast = self.encode_departments(self.df_forecast)
+
         return self.df_hist, self.df_forecast
+
+    @staticmethod
+    def encode_departments(df):
+        dep_col = "department" if "department" in df.columns else "nom_dep"
+        # enc = OneHotEncoder()
+        # enc.fit(df[[dep_col]])
+        # dep_encoded = enc.transform(df[[dep_col]]).toarray()
+        # df = pd.concat(
+        #     [df, pd.DataFrame(dep_encoded, columns=enc.get_feature_names([dep_col]))],
+        #     axis=1,
+        # ).drop(columns=[dep_col])
+
+        # For now we just remove the department column
+        df = df.drop(columns=[dep_col])
+        return df
 
     def add_amplitude(self, frequency):
         # Define the aggregation function
@@ -57,7 +80,7 @@ class FeatureCreation:
             left_on=["department", "year"],
             right_on=["nom_dep", "year"],
             how="outer",
-        )
+        ).drop(columns=["nom_dep", "code_dep", "scenario"])
 
         # Initialisation of the forecast df
         self.df_forecast = pivoted_df[~(pivoted_df["scenario"] == "historical")]
