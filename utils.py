@@ -1,4 +1,4 @@
-def longest_consecutive_years(group):
+def total_consecutive_days(condition_series):
     """
     mask = (
         (df_yield["yield"].isna())
@@ -7,16 +7,16 @@ def longest_consecutive_years(group):
     )
     longest_gap = df_yield[mask].groupby("department").apply(longest_consecutive_years)
     """
-    years = group.index.year  # Extract the years from the index
-    longest_streak = 0
-    current_streak = 1
 
-    for i in range(1, len(years)):
-        if years[i] == years[i - 1] + 1:
+    current_streak = 0
+    total_days = 0
+
+    for value in condition_series:
+        if value:
             current_streak += 1
         else:
-            longest_streak = max(longest_streak, current_streak)
-            current_streak = 1
+            total_days += current_streak
+            current_streak = 0
 
-    longest_streak = max(longest_streak, current_streak)
-    return longest_streak
+    total_days += current_streak
+    return total_days
