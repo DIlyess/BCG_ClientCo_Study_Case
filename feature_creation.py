@@ -18,9 +18,9 @@ class FeatureCreation:
         self.add_threshold_days()
         self.add_temperature_categories()
         self.add_consecutive_days()
-        # self.add_annual_precipitation_category()
-        # self.add_yield_lagged_features()
-        # self.add_estimate_future_yields()
+        self.add_annual_precipitation_category()
+        self.add_yield_lagged_features()
+        self.add_estimate_future_yields()
         # self.add_department_coordinates()
 
         self.df_hist = self.df_hist.reset_index()
