@@ -28,6 +28,7 @@ class ETL:
         col_rename = {
             "daily_maximum_near_surface_air_temperature": "max_daily_NSA_temp",
             "near_surface_air_temperature": "daily_NSA_temp",
+            "nom_dep": "department",
         }
         df_climate = df_climate.rename(columns=col_rename)
         self.df_climate = df_climate
@@ -36,8 +37,8 @@ class ETL:
         # Temporary : drop all NaNs
         df_climate = self.df_climate
         missing_data = df_climate[df_climate.isna().any(axis=1)]
-        missing_data = missing_data[["nom_dep", "scenario"]].drop_duplicates(
-            subset=["nom_dep", "scenario"]
+        missing_data = missing_data[["department", "scenario"]].drop_duplicates(
+            subset=["department", "scenario"]
         )
         print("--- df_climate---")
         print(

@@ -7,28 +7,35 @@ class FeatureCreation:
         self.df_climate = df_climate
         self.df_yield = df_yield
         self.df_hist = df_yield
-        self.df_forecast = pd.DataFrame()
-        self.group_col = ["scenario", "nom_dep", "code_dep", "year"]
+        self.df_forecast = None
+        self.df_phase = None
+        self.group_col = ["scenario", "department", "code_dep", "year"]
         self.metrics = df_climate.columns[~df_climate.columns.isin(self.group_col)]
 
     def run(self):
         # Call feature creation methods in the correct order
-        self.add_amplitude()
+        self.add_stat_features()
         self.add_threshold_days()
         self.add_temperature_categories()
         self.add_consecutive_days()
-        self.add_annual_precipitation_category()
+        # self.add_annual_precipitation_category()
+        # self.add_yield_lagged_features()
+        # self.add_estimate_future_yields()
+        # self.add_department_coordinates()
 
         self.df_hist = self.df_hist.reset_index()
         self.df_hist["year"] = self.df_hist["year"].apply(lambda x: x.year)
 
+        self.df_forecast = self.df_forecast.reset_index()
+        self.df_forecast["year"] = self.df_forecast["year"].apply(lambda x: x.year)
+
         # WARNING TMP --- Removing departments ---
-        self.df_hist = self.encode_departments(self.df_hist)
-        self.df_forecast = self.encode_departments(self.df_forecast)
+        # self.df_hist = self.encode_departments(self.df_hist)
+        # self.df_forecast = self.encode_departments(self.df_forecast)
 
         return self.df_hist, self.df_forecast
 
-    def add_amplitude(self):
+    def add_stat_features(self):
         # Map dates to growth phases
         """
         def map_date_to_phase(date):
@@ -47,48 +54,64 @@ class FeatureCreation:
         def map_date_to_month(date):
             return date.month
 
+        def map_date_to_quarter(date):
+            month = date.month
+            if month in [1, 2, 3]:
+                return "Q1"
+            elif month in [4, 5, 6]:
+                return "Q2"
+            elif month in [7, 8, 9]:
+                return "Q3"
+            else:
+                return "Q4"
+
         # Reset index to ensure 'date' is a column
         df_climate = self.df_climate.reset_index()
 
         # Map dates to months
-        df_climate["month"] = df_climate["date"].apply(map_date_to_month)
-
-        # Update grouping columns to include 'month'
-        group_col = self.group_col + ["month"]
-
-        """
-        # Map dates to phases
-        df_climate['phase'] = df_climate['date'].apply(map_date_to_phase)
-        df_climate = df_climate[df_climate['phase'].notnull()]  # Filter only valid phases
+        df_climate["phase"] = df_climate["date"].apply(map_date_to_quarter)
 
         # Update grouping columns to include 'phase'
-        group_col = self.group_col + ['phase']
-        """
+        group_col = self.group_col + ["phase"]
 
         # Define amplitude calculation
         def amplitude(group):
             return group.max() - group.min()
 
+        def mean(group):
+            return group.mean()
+
+        def std(group):
+            return group.std()
+
+        dic_agg = {metric: [amplitude, mean, std] for metric in self.metrics}
+
         # Group by the new grouping columns and calculate amplitude
-        month_data = (
-            df_climate.groupby(by=group_col)[self.metrics].agg(amplitude).reset_index()
-        )
+        phase_data = df_climate.groupby(by=group_col).agg(dic_agg).reset_index()
 
         # Rename columns
-        new_features = ["amp_" + feat for feat in self.metrics]
-        col_rename = dict(zip(self.metrics, new_features))
-        month_data.rename(columns=col_rename, inplace=True)
+        rename_dic = {(col, "amplitude"): f"{col}_amplitude" for col in self.metrics}
+        rename_dic.update({(col, "mean"): f"{col}_mean" for col in self.metrics})
+        rename_dic.update({(col, "std"): f"{col}_std" for col in self.metrics})
+        phase_data.columns = [
+            (
+                "_".join(filter(None, [str(c) for c in col])).strip("_")
+                if isinstance(col, tuple)
+                else col
+            )
+            for col in phase_data.columns.values
+        ]
 
-        # Pivot the data to have months as columns
-        pivoted_df = month_data.pivot_table(
+        # Pivot the data to have phases as columns
+        pivoted_df = phase_data.pivot_table(
             index=[
                 "scenario",
-                "nom_dep",
+                "department",
                 "code_dep",
                 "year",
             ],  # Ensure 'year' is included
-            columns="month",
-            values=new_features,
+            columns="phase",
+            values=list(rename_dic.values()),
         ).reset_index()  # Keep 'year' and other grouping columns
 
         # Flatten the MultiIndex columns
@@ -110,14 +133,14 @@ class FeatureCreation:
             self.df_hist,
             pivoted_df[pivoted_df["scenario"] == "historical"],
             left_on=["department", "year"],
-            right_on=["nom_dep", "year"],
-            how="outer",
+            right_on=["department", "year"],
+            how="inner",
         )
 
         # Initialize the forecast dataframe
         self.df_forecast = pivoted_df[~(pivoted_df["scenario"] == "historical")]
 
-        print("--- Amplitude feature created over months ---")
+        print("--- Amplitude feature created over phases ---")
 
     def add_threshold_days(self):
         thresholds = {"rain": 8.493e-05, "frost": 0 + 273.15, "heat": 30 + 273.15}
@@ -172,7 +195,7 @@ class FeatureCreation:
         pivoted_df = phase_data.pivot_table(
             index=[
                 "scenario",
-                "nom_dep",
+                "department",
                 "code_dep",
                 "year",
             ],  # Ensure 'year' is included
@@ -194,15 +217,15 @@ class FeatureCreation:
         self.df_hist = pd.merge(
             self.df_hist,
             pivoted_df[pivoted_df["scenario"] == "historical"],
-            on=["nom_dep", "year", "code_dep", "scenario"],
-            how="outer",
+            on=["department", "year", "code_dep", "scenario"],
+            how="inner",
         )
 
         self.df_forecast = pd.merge(
             self.df_forecast,
             pivoted_df[~(pivoted_df["scenario"] == "historical")],
-            on=["nom_dep", "year", "scenario", "code_dep"],
-            how="outer",
+            on=["department", "year", "scenario", "code_dep"],
+            how="inner",
         )
 
         print("--- Threshold days feature created over phases ---")
@@ -211,7 +234,7 @@ class FeatureCreation:
         # Define phases and temperature ranges
         phases = {
             "germination": {
-                "temp_range": (4 + 273.15, 20 + 273.15),
+                "temp_range": (20 + 273.15, 25 + 273.15),
                 "months": [10, 11],
             },
             "growth": {
@@ -255,7 +278,7 @@ class FeatureCreation:
         # Count the number of days in each temperature category for each phase
         counts = (
             df_phase.groupby(
-                ["scenario", "nom_dep", "code_dep", "year", "phase", "temp_category"]
+                ["scenario", "department", "code_dep", "year", "phase", "temp_category"]
             )
             .size()
             .reset_index(name="days_count")
@@ -263,7 +286,7 @@ class FeatureCreation:
 
         # Pivot the data to create a wide format with separate columns for each category and phase
         counts_pivot = counts.pivot_table(
-            index=["scenario", "nom_dep", "code_dep", "year"],
+            index=["scenario", "department", "code_dep", "year"],
             columns=["phase", "temp_category"],
             values="days_count",
             fill_value=0,
@@ -287,16 +310,16 @@ class FeatureCreation:
         self.df_hist = pd.merge(
             self.df_hist,
             counts_pivot_hist,
-            on=["scenario", "nom_dep", "code_dep", "year"],
-            how="outer",
+            on=["scenario", "department", "code_dep", "year"],
+            how="inner",
         )
 
         # Merge the new features into the forecast dataset
         self.df_forecast = pd.merge(
             self.df_forecast,
             counts_pivot_forecast,
-            on=["scenario", "nom_dep", "code_dep", "year"],
-            how="outer",
+            on=["scenario", "department", "code_dep", "year"],
+            how="inner",
         )
 
         # **Assign df_phase to self.df_phase**
@@ -309,9 +332,10 @@ class FeatureCreation:
 
         df_phase["is_below"] = df_phase["temp_category"] == "below"
         df_phase["is_above"] = df_phase["temp_category"] == "above"
+        df_phase["is_within"] = df_phase["temp_category"] == "within"
 
         df_phase.sort_values(
-            by=["scenario", "nom_dep", "code_dep", "year", "phase", "date"],
+            by=["scenario", "department", "code_dep", "year", "phase", "date"],
             inplace=True,
         )
 
@@ -320,21 +344,24 @@ class FeatureCreation:
             total_above = self.total_consecutive_days(group["is_above"])
             return pd.Series(
                 {
-                    "total_below_consecutive_days": total_below,
-                    "total_above_consecutive_days": total_above,
+                    "max_consecutive_below": total_below,
+                    "max_consecutive_above": total_above,
                 }
             )
 
         total_consecutive_days_df = (
-            df_phase.groupby(["scenario", "nom_dep", "code_dep", "year", "phase"])
+            df_phase.groupby(["scenario", "department", "code_dep", "year", "phase"])
             .apply(compute_total_consecutive_days)
             .reset_index()
         )
 
         total_consecutive_days_pivot = total_consecutive_days_df.pivot_table(
-            index=["scenario", "nom_dep", "code_dep", "year"],
+            index=["scenario", "department", "code_dep", "year"],
             columns="phase",
-            values=["total_below_consecutive_days", "total_above_consecutive_days"],
+            values=[
+                "max_consecutive_below",
+                "max_consecutive_above",
+            ],
         )
 
         total_consecutive_days_pivot.columns = [
@@ -360,15 +387,15 @@ class FeatureCreation:
         self.df_hist = pd.merge(
             self.df_hist,
             total_consecutive_days_hist,
-            on=["scenario", "nom_dep", "code_dep", "year"],
-            how="outer",
+            on=["scenario", "department", "code_dep", "year"],
+            how="inner",
         )
 
         self.df_forecast = pd.merge(
             self.df_forecast,
             total_consecutive_days_forecast,
-            on=["scenario", "nom_dep", "code_dep", "year"],
-            how="outer",
+            on=["scenario", "department", "code_dep", "year"],
+            how="inner",
         )
 
         print("--- Consecutive days feature created ---")
@@ -390,7 +417,7 @@ class FeatureCreation:
         df_climate = self.df_climate.reset_index()
         # Sum the precipitation per year, per scenario, per department, per code_dep
         annual_precipitation = (
-            df_climate.groupby(["scenario", "nom_dep", "code_dep", "year"])[
+            df_climate.groupby(["scenario", "department", "code_dep", "year"])[
                 "precipitation"
             ]
             .sum()
@@ -449,15 +476,15 @@ class FeatureCreation:
             hist_data[
                 [
                     "scenario",
-                    "nom_dep",
+                    "department",
                     "code_dep",
                     "annual_precip_below",
                     "annual_precip_within",
                     "annual_precip_above",
                 ]
             ],
-            on=["scenario", "nom_dep", "code_dep", "year"],
-            how="outer",
+            on=["scenario", "department", "code_dep", "year"],
+            how="inner",
         )
 
         # Merge into df_forecast
@@ -466,22 +493,142 @@ class FeatureCreation:
             forecast_data[
                 [
                     "scenario",
-                    "nom_dep",
+                    "department",
                     "code_dep",
                     "annual_precip_below",
                     "annual_precip_within",
                     "annual_precip_above",
                 ]
             ],
-            on=["scenario", "nom_dep", "code_dep", "year"],
-            how="outer",
+            on=["scenario", "department", "code_dep", "year"],
+            how="inner",
         )
 
         print("--- Annual precipitation category feature created ---")
 
+    def add_yield_lagged_features(self):
+        print("--- Calculating lagged features for yield ---")
+
+        # Sort data to ensure proper lag calculation
+        self.df_hist.sort_values(by=["department", "year"], inplace=True)
+
+        # Create lagged features for yield
+        # self.df_hist['yield_lag1'] = self.df_hist.groupby('department')['yield'].shift(1)  # Lag of 1 year
+        self.df_hist["cagr"] = self.df_hist.groupby("department")[
+            "yield"
+        ].pct_change()  # Percentage change
+
+        print("--- Yield lagged features calculated ---")
+
+    def add_estimate_future_yields(self):
+        print("--- Estimating future yields using historical CAGR ---")
+        # Reset index to ensure 'year' is a column
+        df_hist_yields = self.df_hist.reset_index()
+        df_future_yields = self.df_forecast.reset_index()
+
+        # Convert 'year' to datetime and extract the year
+        df_hist_yields["year"] = pd.to_datetime(df_hist_yields["year"], format="%Y")
+        df_hist_yields["year"] = df_hist_yields["year"].dt.year
+        df_future_yields["year"] = pd.to_datetime(df_future_yields["year"], format="%Y")
+        df_future_yields["year"] = df_future_yields["year"].dt.year
+
+        # Ensure 'year' is an integer
+        df_hist_yields["year"] = df_hist_yields["year"].astype(int)
+        df_future_yields["year"] = df_future_yields["year"].astype(int)
+
+        # Compute CAGR per department
+        def compute_cagr(group):
+            first_year = group["year"].min()
+            last_year = group["year"].max()
+            num_years = last_year - first_year
+            beginning_value = group.loc[group["year"] == first_year, "yield"].values[0]
+            ending_value = group.loc[group["year"] == last_year, "yield"].values[0]
+            if num_years > 0 and beginning_value > 0:
+                cagr = (ending_value / beginning_value) ** (1 / num_years) - 1
+            else:
+                cagr = 0
+            return cagr
+
+        cagr_df = df_hist_yields.groupby("department").apply(compute_cagr).reset_index()
+        cagr_df.rename(columns={0: "cagr"}, inplace=True)
+
+        # Get the last historical yield per department
+        last_yield_df = (
+            df_hist_yields.sort_values(by=["department", "year"])
+            .groupby("department")
+            .tail(1)[["department", "year", "yield"]]
+        )
+
+        # Reset index to ensure 'year' is a column in df_forecast
+        self.df_forecast = self.df_forecast.reset_index()
+
+        # Merge the CAGR into the forecast data
+        self.df_forecast = pd.merge(
+            self.df_forecast,
+            cagr_df[["department", "cagr"]],
+            on="department",
+            how="inner",
+        )
+        # Check if 'year' is still present
+        if "year" in self.df_forecast.columns:
+            # If needed, set 'year' back as the index
+            self.df_forecast.set_index("year", inplace=True)
+        else:
+            print("Warning: 'year' column is missing in df_forecast after merging.")
+
+        print("--- Future yields CAGR ---")
+
+    def add_department_coordinates(self):
+        # Load department coordinates from a local CSV file
+        department_coords = pd.read_csv("departments_coordinates.csv")
+
+        # Ensure 'year' is a column before merging
+        self.df_hist = (
+            self.df_hist.reset_index()
+            if "year" not in self.df_hist.columns
+            else self.df_hist.copy()
+        )
+        self.df_forecast = (
+            self.df_forecast.reset_index()
+            if "year" not in self.df_forecast.columns
+            else self.df_forecast.copy()
+        )
+
+        # Merge coordinates into the historical DataFrame
+        self.df_hist = pd.merge(
+            self.df_hist,
+            department_coords[["department", "latitude", "longitude"]],
+            on="department",
+            how="inner",
+        )
+
+        # Restore 'year' as the index if needed
+        if "year" in self.df_hist.columns:
+            self.df_hist.set_index("year", inplace=True)
+        else:
+            print("Warning: 'year' column is missing in df_hist after the merge.")
+
+        # Merge coordinates into the forecast DataFrame
+        self.df_forecast = pd.merge(
+            self.df_forecast,
+            department_coords[["department", "latitude", "longitude"]],
+            on="department",
+            how="inner",
+        )
+
+        # Drop rows where we added NaNs (ie when the department was not in the df_hist or df_forecast)
+
+        # Restore 'year' as the index if needed
+        if "year" in self.df_forecast.columns:
+            self.df_forecast.set_index("year", inplace=True)
+        else:
+            print("Warning: 'year' column is missing in df_forecast after the merge.")
+
+        print("--- Department coordinates added ---")
+
     @staticmethod
     def encode_departments(df):
-        dep_col = "department" if "department" in df.columns else "nom_dep"
+        dep_col = df.columns[df.columns.str.contains("dep|department")]
         # enc = OneHotEncoder()
         # enc.fit(df[[dep_col]])
         # dep_encoded = enc.transform(df[[dep_col]]).toarray()
@@ -492,4 +639,5 @@ class FeatureCreation:
 
         # For now we just remove the department column
         df = df.drop(columns=[dep_col])
+        print("Dropped :", dep_col)
         return df
